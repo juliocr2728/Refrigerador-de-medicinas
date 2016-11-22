@@ -1,0 +1,452 @@
+
+ 
+#include <SPI.h>
+#include <Ethernet.h>
+#include <SoftwareSerial.h>
+#include <SD.h>
+#include <Wire.h>
+#include <Time.h>
+#include <DS3234.h>
+#include "ThingSpeak.h"
+#include "DHT.h"
+#define DHTTYPE DHT22 // DHT 22 (AM2302)
+#define DHTPIN 2 // what pin we're connected to
+#define ALARM 3 // pin where speaker is coneccted
+const int botonPin = 30;     // PIN para el botón
+
+                                  
+int h = 0, m = 0, s = 0; // Tiempo en que se inicia a guardar datos en SD
+int ID = 1;
+float cuenta = 0.0;
+static unsigned int tiempo; // variable que recoge tiempo. Se define como static para poder utilizarla fuera de bucles
+int estadoBoton = 0;         // Estado del botón
+int alarmat =0;
+int alarmah=0;
+int alarmap=0;
+float tmax=50,tmin=0,temp, humid, humax=70,humin=30;  // humedad máxima de 70% y minima de 30%
+
+
+SoftwareSerial SIM900(10, 11); // Configura el puerto serial para el SIM900
+
+// Uncomment whatever type you're using!
+//#define DHTTYPE DHT11 // DHT 11
+ 
+//#define DHTTYPE DHT21 // DHT 21 (AM2301)
+
+// Connect pin 1 (on the left) of the sensor to +5V
+// Connect pin 2 of the sensor to whatever your DHTPIN is
+// Connect pin 4 (on the right) of the sensor to GROUND
+// Connect a 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
+
+DHT dht(DHTPIN, DHTTYPE);
+DHT sensor(2, DHT22);
+
+// Enter a MAC address and IP address for your controller below.
+// The IP address will be dependent on your local network:
+ byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
+    EthernetClient client;
+  
+unsigned long myChannelNumber = 180716;
+const char * myWriteAPIKey = "Y0M2WH7YDAMZ4JHF";
+
+
+void setup() {
+// start the Ethernet connection and the server:
+
+     Ethernet.begin(mac);
+     ThingSpeak.begin(client);
+     Serial.begin(9600);
+// Serial.println("DHTxx test!");
+
+
+// DHT
+dht.begin();
+
+
+
+Serial.println("Monitoreo de Medicinas");
+
+  Serial.print("Temperatura Máxima: "); 
+  pinMode(DHTPIN, INPUT);  // indica que Alarma es salida  
+  pinMode(ALARM, OUTPUT);  // indica que Alarma es salida  
+  pinMode(botonPin, INPUT); // indica que el botón es entrada
+                                  // El USIARIO DEFINE LOS VALORES MAXIMOS Y MINIMOS PARA EL RANGO DE TEMPERATURA
+
+  while(tmax == 50)   
+
+  {
+
+    if (Serial.available() > 0 || Serial.available() < 0  ) 
+
+    {  
+
+      tmax= Serial.parseFloat();  // toma el valor ingresado por el usuario como máximo
+
+    }
+
+  }  
+
+  Serial.println (tmax);
+
+  Serial.print("Temperatura Minima: ");
+
+  while(tmin == 0)
+
+  {
+
+    if (Serial.available() > 0 || Serial.available() < 0  ) 
+
+    {  
+
+      tmin= Serial.parseFloat();   // toma el valor ingresado por el usuario como mínimo
+
+    }
+
+  } 
+                                           //El Usuario define la hora en que desea que inicie el monitoreo
+  Serial.println (tmin);
+  
+  //Serial.println("DHTxx test!");
+
+
+  Serial.println("Hora para iniciar respaldo de datos en SD: ");
+    Serial.println("Hora: ");
+
+  while(h== 0)
+
+  {
+
+    if (Serial.available() > 0    ) 
+ 
+    {  
+
+      h= Serial.parseFloat();
+
+    }
+
+  } 
+
+  Serial.println (h);
+
+     Serial.println("Minutos: ");
+
+  while(m== 0)
+
+  {
+
+    if (Serial.available() > 0    ) 
+ 
+    {  
+
+      m= Serial.parseFloat();
+
+    }
+
+  } 
+
+  Serial.println (m);
+
+
+
+
+  
+  delay(500);
+
+  SIM900.begin(9600); //Configura velocidad del puerto serie para el SIM900
+
+  delay (1000);
+  SIM900.println("AT + CPIN = \"0430\""); //Comando AT para introducir el PIN de la tarjeta
+  delay(15000); //Tiempo para que encuentre una RED
+  RTC.configure(5,6,7,9);
+  //sensor.setup(2);
+ 
+  pinMode(53, OUTPUT); //para seleccionar la tarjeta SD, si no sirve con 10 poner 53
+  SD.begin(4);//cs para ethernet shield
+  Serial.begin(9600);
+  Serial.println("Ready");
+ PrintHeader();
+ CheckTime();
+ 
+
+}
+
+
+void PrintHeader() // this function prints header to SD card
+{
+   File datafile = SD.open("prueba1.txt", FILE_WRITE);
+   if (datafile)
+   {
+      String header = "ID, Fecha - Hora, Temperatura(°C), Humedad (%),Estado Puerta Abierta(1)-Cerrada(0),Tiempo Puerta Abierta(s),Alarma Puerta ,Alarma de Temperatura, Alarma de Humedad)";
+      datafile.println(header);
+      datafile.close();
+      Serial.println("Header Printed");
+   }
+   else
+   {
+     Serial.println("ERROR: Datafile or SD card unavailable");
+   }
+}
+
+void CheckTime() // this function checks if the specified start time has reached
+{
+   while(1)
+   {
+    RTC.readDateTime();
+    if(RTC.time_h()==h && RTC.time_m()==m && RTC.time_s()==s)
+    {
+      Serial.println("Launch Time reached");
+      break;
+    }
+   }
+}
+ 
+
+void mensaje_sms_temperatura()
+{
+  //Serial.println("Enviando SMS...");
+  SIM900.print("AT+CMGF=1\r"); //Comando AT para mandar un SMS
+  delay(1000);
+  SIM900.println("AT + CMGS = \"50688538624\""); //Numero al que vamos a enviar el mensaje
+  delay(1000);
+  SIM900.println("SMS enviado desde un Arduino. Se ha sobrepasado el rango de Temperatura por favor revisar.");// Texto del SMS
+  delay(100);
+  SIM900.println((char)26);//Comando de finalizacion ^Z
+  delay(100);
+  SIM900.println();
+  delay(5000); // Esperamos un tiempo para que envíe el SMS
+  Serial.println("SMS enviado");
+}
+
+
+void mensaje_sms_humedad()
+{
+  //Serial.println("Enviando SMS...");
+  SIM900.print("AT+CMGF=1\r"); //Comando AT para mandar un SMS
+  delay(1000);
+  SIM900.println("AT + CMGS = \"50688538624\""); //Numero al que vamos a enviar el mensaje
+  delay(1000);
+  SIM900.println("SMS enviado desde un Arduino. Se ha sobrepasado el rango de Humedad por favor revisar.");// Texto del SMS
+  delay(100);
+  SIM900.println((char)26);//Comando de finalizacion ^Z
+  delay(100);
+  SIM900.println();
+  delay(2000); // Esperamos un tiempo para que envíe el SMS
+  Serial.println("SMS enviado");
+}
+
+
+void LecturaSerial()
+
+{
+
+  Serial.print("Humedad Relativa: "); 
+
+  Serial.print(humid);
+
+  Serial.print(" %\t");
+
+  Serial.print("Temperatura: "); 
+
+  Serial.print(temp);
+
+  Serial.println(" *C\n");
+}
+
+
+
+
+void loop() {
+
+   Serial.println(" Inicio____");
+//WEBloop();
+
+ RTC.readDateTime();
+    
+    if(s>=60)
+    {
+      s = s-60;  //reset s (seconds) to 0 after one minute or more has passed
+      m++;  // add one minute after 60 seconds have passed
+    }
+    if(m>=60)
+    {
+      m = m-60;  //reset m (minutes) to 0 after one hour or more has passed
+    }
+    if(h>=24)
+    {
+      h = h-24;  //if time interval is greater than one hour
+    }
+    if(RTC.time_h()==h+1 || RTC.time_h()==0)
+    {
+      h = RTC.time_h();  //change value of h to actual hour after one hour or one day
+    }
+    
+  
+      Serial.print("Current Date & Time: ");
+      Serial.println(RTC.readDateTime());
+ PrintToSD();
+    
+      ID++;    
+   
+estadoBoton = digitalRead(botonPin); // lee el estado del botón
+//Serial.println(estadoBoton);
+ if (estadoBoton == HIGH) {    // si el botón es apretado
+
+   Serial.println("Puerta Abierta!"); // se indica que comienza la cuenta
+
+
+
+
+
+
+    cuenta = (cuenta + 1.0);
+    delay(500);
+    if (cuenta >=3 )  {
+      tone(ALARM,300,1000);
+      alarmap=1;
+    }
+    //else  {
+      //noTone(alarma);
+    //}
+  }
+  if (estadoBoton == LOW) {                 //Si no hay botón el tiempo almacenado y el actual se mantienen iguales.
+    delay(500);
+    cuenta = 0;
+    alarmap=0;
+  }
+  tiempo=cuenta*10;
+  Serial.println(tiempo);
+
+ // Reading temperature or humidity takes about 250 milliseconds!
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+ humid = dht.readHumidity();
+  // Read temperature as Celsius (the default)
+ temp = dht.readTemperature();
+  // Read temperature as Fahrenheit (isFahrenheit = true)
+  //float f = dht.readTemperature(true);
+
+  // Check if any reads failed and exit early (to try again).
+  if (isnan(humid) || isnan(temp) ) {
+     
+    Serial.println("Fallo en la lectura del sensor!");
+    tone (ALARM,300,1000);
+    
+  }
+
+ else 
+
+  {
+
+    if (temp > tmin && temp < tmax)
+
+    {
+
+      noTone(ALARM);
+      alarmat=0;
+     LecturaSerial();
+
+    }
+
+    else
+
+    {
+      
+      mensaje_sms_temperatura(); //Envia SMS
+      tone(ALARM,300,1000);
+      alarmat=1;
+      Serial.println("Peligro!!! Temperatura Fuera de Rango");
+
+      Serial.print("Temperatura debe de mantenerse entre ");
+
+      Serial.print(tmin);
+
+      Serial.print(" y ");
+
+      Serial.println(tmax);
+
+      LecturaSerial();
+
+    }
+
+
+                                                                      
+    
+ if (humid > humin && humid < humax)
+
+    {
+
+      noTone(ALARM);
+      alarmah=0;
+    //  LecturaSerial();
+
+    }
+
+    else
+
+    {
+      
+      mensaje_sms_humedad(); //Envia SMS
+      tone(ALARM,40,1000);
+      alarmah=1;
+      Serial.println("Peligro!!! Humedad Fuera de Rango");
+
+      Serial.print("Humedad debe de mantenerse entre ");
+
+      Serial.print(humin);
+
+      Serial.print(" y ");
+
+      Serial.println(humax);
+
+      LecturaSerial();
+
+    }
+                                                                                                       
+  }
+PrintToSD();
+                                                       //Variables a mostrar en la página web
+
+  ThingSpeak.setField(1, (float)temp);
+  ThingSpeak.setField(2, (float)humid);
+  ThingSpeak.setField(3, (float)tiempo);
+  ThingSpeak.setField(4, (float)alarmap);   // estado de la alarma de la puerta
+  ThingSpeak.setField(5, (float)alarmat);   // estado de la alarma de temperatura
+  ThingSpeak.setField(6, (float)alarmah);   // estado de la alarma de humedad
+
+  ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+
+}
+
+void PrintToSD()  // this function saves the data to the SD card
+{   
+        File datafile = SD.open("prueba1.txt", FILE_WRITE);
+        if(datafile)
+        {
+            datafile.print(ID);
+            datafile.print(",");
+            datafile.print(RTC.readDateTime());
+            datafile.print(",");
+            datafile.print(temp, 2); // imprime temperatura con 2 decimales 
+            datafile.print(",");
+            datafile.print(humid, 1); // imprime humeddad con 1 decimal
+            datafile.print(",");
+            datafile.print(estadoBoton);// imprime cuando se abre la puerta 
+            datafile.print(",");
+            datafile.print(tiempo);// imprime tiempo en que la puerta está abierta en segundos 
+            datafile.print(",");
+            datafile.print(alarmap);   // imprime estado de la alarma de la puerta
+            datafile.print(",");
+            datafile.print(alarmat); // imprime estado de la alarma de temperatura
+            datafile.print(",");
+            datafile.print(alarmah); // // imprime estado de la alarma de humedad
+            datafile.println();
+            datafile.close();
+            Serial.println("Data printed to SD card");
+            Serial.println();
+        }
+        else
+        {
+            Serial.println("ERROR: Datafile or SD card unavailable");
+            Serial.println();
+        }
+}
+
