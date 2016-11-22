@@ -160,7 +160,7 @@ Serial.println("Monitoreo de Medicinas");
   RTC.configure(5,6,7,9);
   //sensor.setup(2);
  
-  pinMode(53, OUTPUT); //para seleccionar la tarjeta SD, si no sirve con 10 poner 53
+  pinMode(53, OUTPUT);  
   SD.begin(4);//cs para ethernet shield
   Serial.begin(9600);
   Serial.println("Ready");
@@ -402,7 +402,7 @@ estadoBoton = digitalRead(botonPin); // lee el estado del botón
     }
                                                                                                        
   }
-PrintToSD();
+PrintToSD();   
                                                        //Variables a mostrar en la página web
 
   ThingSpeak.setField(1, (float)temp);
@@ -416,7 +416,7 @@ PrintToSD();
 
 }
 
-void PrintToSD()  // this function saves the data to the SD card
+void PrintToSD()  // Función para guardar en SD
 {   
         File datafile = SD.open("prueba1.txt", FILE_WRITE);
         if(datafile)
